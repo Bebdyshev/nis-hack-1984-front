@@ -10,6 +10,7 @@ import {
   Cpu,
   Settings,
   Shield,
+  ScreenShare,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -19,6 +20,7 @@ const navItems = [
   { href: "/alerts", label: "Нарушения", icon: AlertTriangle },
   { href: "/activity", label: "Активность", icon: Activity },
   { href: "/processes", label: "Процессы", icon: Cpu },
+  { href: "/screens", label: "Экраны", icon: ScreenShare },
 ];
 
 const settingsItems = [
