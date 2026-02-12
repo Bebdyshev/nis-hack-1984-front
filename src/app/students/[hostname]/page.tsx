@@ -17,6 +17,8 @@ import {
   ScreenShareOff,
   MonitorOff,
   Lock,
+  ExternalLink,
+  Send,
 } from "lucide-react";
 import { useStudentDetail } from "@/lib/api";
 import { TEACHER_API } from "@/lib/api-config";
@@ -134,6 +136,36 @@ export default function StudentDetailPage({
       setTimeout(() => setLockResult(null), 4000);
     }
   }, [hostname]);
+
+  const [urlInput, setUrlInput] = useState("");
+  const [urlLoading, setUrlLoading] = useState(false);
+  const [urlResult, setUrlResult] = useState<{ ok: boolean; msg: string } | null>(null);
+
+  const sendOpenUrl = useCallback(async () => {
+    const url = urlInput.trim();
+    if (!url) return;
+    setUrlLoading(true);
+    setUrlResult(null);
+    try {
+      const res = await fetch(`${TEACHER_API}/students/${hostname}/open-url`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: url.startsWith("http") ? url : `https://${url}` }),
+      });
+      const json = await res.json();
+      if (json.status === "ok") {
+        setUrlResult({ ok: true, msg: "Ссылка открыта" });
+        setUrlInput("");
+      } else {
+        setUrlResult({ ok: false, msg: json.error || "Ошибка" });
+      }
+    } catch {
+      setUrlResult({ ok: false, msg: "Нет связи с сервером" });
+    } finally {
+      setUrlLoading(false);
+      setTimeout(() => setUrlResult(null), 4000);
+    }
+  }, [hostname, urlInput]);
 
   if (loading) {
     return (
