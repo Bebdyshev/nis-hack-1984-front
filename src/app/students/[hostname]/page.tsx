@@ -275,6 +275,49 @@ export default function StudentDetailPage({
         </div>
       )}
 
+      {/* Open URL */}
+      <div className="mb-6 flex items-center gap-3">
+        <div className="flex items-center gap-2 flex-1 bg-card-bg border border-card-border rounded-lg overflow-hidden">
+          <div className="pl-3 text-muted">
+            <ExternalLink className="w-4 h-4" />
+          </div>
+          <input
+            type="text"
+            value={urlInput}
+            onChange={(e) => setUrlInput(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && sendOpenUrl()}
+            placeholder="Вставьте ссылку (Kahoot, презентация, и т.д.)"
+            className="flex-1 px-2 py-2.5 text-sm bg-transparent outline-none text-foreground placeholder:text-muted"
+            disabled={!summary.active}
+          />
+          <button
+            onClick={sendOpenUrl}
+            disabled={urlLoading || !summary.active || !urlInput.trim()}
+            className="px-4 py-2.5 text-xs font-medium bg-accent text-white hover:bg-accent/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5"
+          >
+            {urlLoading ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Send className="w-3.5 h-3.5" />
+            )}
+            Открыть
+          </button>
+        </div>
+      </div>
+
+      {/* URL result toast */}
+      {urlResult && (
+        <div
+          className={`mb-4 px-4 py-2.5 rounded-lg text-sm font-medium ${
+            urlResult.ok
+              ? "bg-success/10 text-success border border-success/20"
+              : "bg-danger/10 text-danger border border-danger/20"
+          }`}
+        >
+          {urlResult.msg}
+        </div>
+      )}
+
       {/* Metric cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
         <div className="bg-card-bg border border-card-border rounded-xl p-4">
