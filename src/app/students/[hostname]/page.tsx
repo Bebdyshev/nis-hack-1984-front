@@ -1,6 +1,6 @@
 "use client";
 
-import { use } from "react";
+import { use, useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -13,9 +13,93 @@ import {
   Globe,
   Loader2,
   Clock,
+  ScreenShare,
+  ScreenShareOff,
+  MonitorOff,
+  Lock,
 } from "lucide-react";
 import { useStudentDetail } from "@/lib/api";
+import { TEACHER_API } from "@/lib/api-config";
+import { SCREEN_VIEW_WS } from "@/lib/api-config";
 import { formatPercent, formatTimeAgo } from "@/lib/utils";
+
+// ── Live screen hook via teacher WebSocket relay ────────────────
+
+function useLiveScreen(hostname: string) {
+  const [frame, setFrame] = useState<string | null>(null);
+  const [connected, setConnected] = useState(false);
+  const wsRef = useRef<WebSocket | null>(null);
+
+  useEffect(() => {
+    let ws: WebSocket;
+    let unmounted = false;
+
+    function connect() {
+      if (unmounted) return;
+      ws = new WebSocket(SCREEN_VIEW_WS);
+      ws.binaryType = "arraybuffer";
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        if (!unmounted) setConnected(true);
+      };
+
+      ws.onmessage = (e) => {
+        if (unmounted) return;
+
+        // Text messages = JSON events (student_list, etc.)
+        if (typeof e.data === "string") return;
+
+        // Binary: [1 byte hn_len][hostname][JPEG]
+        const buf = new Uint8Array(e.data as ArrayBuffer);
+        if (buf.length < 2) return;
+
+        const hnLen = buf[0];
+        // hnLen === 0 means JSON event encoded as binary, skip
+        if (hnLen === 0) return;
+
+        const hnBytes = buf.slice(1, 1 + hnLen);
+        const hn = new TextDecoder().decode(hnBytes);
+
+        // Only keep frames for THIS student
+        if (hn !== hostname) return;
+
+        const jpegBytes = buf.slice(1 + hnLen);
+        const blob = new Blob([jpegBytes], { type: "image/jpeg" });
+        const url = URL.createObjectURL(blob);
+
+        setFrame((prev) => {
+          if (prev) URL.revokeObjectURL(prev);
+          return url;
+        });
+      };
+
+      ws.onclose = () => {
+        if (!unmounted) {
+          setConnected(false);
+          setTimeout(connect, 3000);
+        }
+      };
+
+      ws.onerror = () => ws.close();
+    }
+
+    connect();
+
+    return () => {
+      unmounted = true;
+      wsRef.current?.close();
+      setFrame((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return null;
+      });
+    };
+  }, [hostname]);
+
+  return { frame, connected };
+}
+
+// ── Page component ──────────────────────────────────────────────
 
 export default function StudentDetailPage({
   params,
@@ -24,6 +108,32 @@ export default function StudentDetailPage({
 }) {
   const { hostname } = use(params);
   const { data, loading, error } = useStudentDetail(hostname, 3000);
+  const { frame: liveFrame, connected: streamConnected } = useLiveScreen(hostname);
+  const [lockLoading, setLockLoading] = useState<"soft" | "hard" | null>(null);
+  const [lockResult, setLockResult] = useState<{ ok: boolean; msg: string } | null>(null);
+
+  const sendLock = useCallback(async (mode: "soft" | "hard") => {
+    setLockLoading(mode);
+    setLockResult(null);
+    try {
+      const res = await fetch(`${TEACHER_API}/students/${hostname}/lock`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode }),
+      });
+      const json = await res.json();
+      if (json.status === "ok") {
+        setLockResult({ ok: true, msg: mode === "soft" ? "Окна свёрнуты" : "Компьютер заблокирован" });
+      } else {
+        setLockResult({ ok: false, msg: json.error || "Ошибка" });
+      }
+    } catch (e) {
+      setLockResult({ ok: false, msg: "Нет связи с сервером" });
+    } finally {
+      setLockLoading(null);
+      setTimeout(() => setLockResult(null), 4000);
+    }
+  }, [hostname]);
 
   if (loading) {
     return (
@@ -47,6 +157,9 @@ export default function StudentDetailPage({
   const { summary, apps, violations, screenshot } = data;
   const applications = apps?.applications ?? [];
   const browserTabs = apps?.browser_tabs ?? [];
+
+  // Use live frame if available, fallback to screenshot from Redis
+  const screenSrc = liveFrame || screenshot?.image_url || null;
 
   return (
     <div className="p-6 lg:p-8 max-w-7xl">
@@ -81,19 +194,54 @@ export default function StudentDetailPage({
             </p>
           </div>
         </div>
-        {summary.last_seen && (
-          <div className="flex items-center gap-1.5 text-xs text-muted">
-            <Clock className="w-3 h-3" />
-            {formatTimeAgo(summary.last_seen)}
-          </div>
-        )}
+        <div className="flex items-center gap-2">
+          {summary.last_seen && (
+            <div className="flex items-center gap-1.5 text-xs text-muted mr-3">
+              <Clock className="w-3 h-3" />
+              {formatTimeAgo(summary.last_seen)}
+            </div>
+          )}
+          <button
+            onClick={() => sendLock("soft")}
+            disabled={lockLoading !== null || !summary.active}
+            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg border border-warning/30 bg-warning/5 text-warning hover:bg-warning/10 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            title="Свернуть все окна на компьютере ученика"
+          >
+            {lockLoading === "soft" ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <MonitorOff className="w-3.5 h-3.5" />
+            )}
+            Soft Lock
+          </button>
+          <button
+            onClick={() => sendLock("hard")}
+            disabled={lockLoading !== null || !summary.active}
+            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg border border-danger/30 bg-danger/5 text-danger hover:bg-danger/10 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            title="Заблокировать компьютер ученика (Win+L)"
+          >
+            {lockLoading === "hard" ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Lock className="w-3.5 h-3.5" />
+            )}
+            Hard Lock
+          </button>
+        </div>
       </div>
 
-      {/* Live indicator */}
-      <div className="flex items-center gap-1.5 mb-6 text-xs text-muted">
-        <Circle className="w-2 h-2 fill-success text-success" />
-        Обновление каждые 3 сек.
-      </div>
+      {/* Lock result toast */}
+      {lockResult && (
+        <div
+          className={`mb-4 px-4 py-2.5 rounded-lg text-sm font-medium ${
+            lockResult.ok
+              ? "bg-success/10 text-success border border-success/20"
+              : "bg-danger/10 text-danger border border-danger/20"
+          }`}
+        >
+          {lockResult.msg}
+        </div>
+      )}
 
       {/* Metric cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
@@ -133,22 +281,50 @@ export default function StudentDetailPage({
         </div>
       </div>
 
-      {/* Screenshot */}
-      {screenshot && (
-        <div className="mb-6 bg-card-bg border border-card-border rounded-xl overflow-hidden">
-          <div className="px-5 py-3 border-b border-card-border">
-            <h3 className="text-sm font-semibold text-foreground">Скриншот экрана</h3>
-            <p className="text-xs text-muted">{formatTimeAgo(screenshot.timestamp)}</p>
+      {/* ── Live Screen ───────────────────────────────────────── */}
+      <div className="mb-6 bg-card-bg border border-card-border rounded-xl overflow-hidden">
+        <div className="px-5 py-3 border-b border-card-border flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Monitor className="w-4 h-4 text-accent" />
+            <h3 className="text-sm font-semibold text-foreground">Экран</h3>
           </div>
-          <div className="p-4">
-            <img
-              src={screenshot.image_url}
-              alt="Скриншот экрана"
-              className="w-full rounded-lg border border-card-border"
-            />
+          <div className="flex items-center gap-1.5">
+            {streamConnected && liveFrame ? (
+              <>
+                <ScreenShare className="w-3.5 h-3.5 text-success" />
+                <span className="text-xs text-success font-medium">Live</span>
+              </>
+            ) : screenshot ? (
+              <>
+                <Clock className="w-3.5 h-3.5 text-muted" />
+                <span className="text-xs text-muted">
+                  Скриншот · {formatTimeAgo(screenshot.timestamp)}
+                </span>
+              </>
+            ) : (
+              <>
+                <ScreenShareOff className="w-3.5 h-3.5 text-muted" />
+                <span className="text-xs text-muted">Нет изображения</span>
+              </>
+            )}
           </div>
         </div>
-      )}
+        <div className="p-4 bg-black/5">
+          {screenSrc ? (
+            <img
+              src={screenSrc}
+              alt={`Экран ${summary.hostname}`}
+              className="w-full rounded-lg border border-card-border"
+            />
+          ) : (
+            <div className="flex flex-col items-center justify-center py-20 text-muted">
+              <ScreenShareOff className="w-12 h-12 mb-3 opacity-30" />
+              <p className="text-sm">Экран недоступен</p>
+              <p className="text-xs mt-1">Студент не подключён к стримингу</p>
+            </div>
+          )}
+        </div>
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Processes Table */}
@@ -159,9 +335,9 @@ export default function StudentDetailPage({
             </h3>
           </div>
           {applications.length > 0 ? (
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto max-h-[400px] overflow-y-auto">
               <table className="w-full text-sm">
-                <thead>
+                <thead className="sticky top-0 bg-card-bg">
                   <tr className="text-xs text-muted uppercase border-b border-card-border">
                     <th className="text-left px-5 py-3 font-medium">PID</th>
                     <th className="text-left px-5 py-3 font-medium">Имя</th>
@@ -169,9 +345,9 @@ export default function StudentDetailPage({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-card-border">
-                  {applications
+                  {[...applications]
                     .sort((a, b) => b.memory_mb - a.memory_mb)
-                    .slice(0, 20)
+                    .slice(0, 30)
                     .map((app) => (
                       <tr key={app.pid}>
                         <td className="px-5 py-3 text-muted font-mono text-xs">{app.pid}</td>
@@ -195,12 +371,12 @@ export default function StudentDetailPage({
         <div className="bg-card-bg border border-card-border rounded-xl">
           <div className="px-5 py-4 border-b border-card-border">
             <h3 className="text-sm font-semibold text-foreground">
-              Последние нарушения
+              Последние нарушения ({violations.length})
             </h3>
           </div>
           {violations.length > 0 ? (
-            <div className="divide-y divide-card-border">
-              {violations.slice(0, 10).map((v, i) => (
+            <div className="divide-y divide-card-border max-h-[400px] overflow-y-auto">
+              {violations.slice(0, 20).map((v, i) => (
                 <div key={`${v.timestamp}-${i}`} className="flex items-center gap-4 px-5 py-3.5">
                   <div
                     className={`w-1 h-10 rounded-full shrink-0 ${
@@ -234,7 +410,7 @@ export default function StudentDetailPage({
             </div>
           ) : (
             <div className="px-5 py-12 text-center text-muted text-sm">
-              Нарушений не обнаружено
+              Нарушений не обнаружено ✅
             </div>
           )}
         </div>
@@ -249,7 +425,7 @@ export default function StudentDetailPage({
               Вкладки браузера ({browserTabs.length})
             </h3>
           </div>
-          <div className="divide-y divide-card-border">
+          <div className="divide-y divide-card-border max-h-[300px] overflow-y-auto">
             {browserTabs.map((tab, i) => (
               <div key={i} className="px-5 py-3">
                 <div className="flex items-center gap-2 mb-0.5">

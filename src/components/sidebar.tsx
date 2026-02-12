@@ -31,11 +31,11 @@ export function Sidebar() {
   const pathname = usePathname();
 
   return (
-    <aside className="w-56 bg-sidebar-bg flex flex-col h-screen shrink-0">
+    <aside className="w-56 bg-white border-r border-gray-200 flex flex-col h-screen shrink-0">
       {/* Logo */}
-      <div className="flex items-center gap-2.5 px-5 py-5 border-b border-white/10">
+      <div className="flex items-center gap-2.5 px-5 py-5 border-b border-gray-200">
         <Shield className="w-7 h-7 text-accent" />
-        <span className="text-white font-semibold text-lg tracking-tight">NisHack</span>
+        <span className="text-foreground font-semibold text-lg tracking-tight">NisHack</span>
       </div>
 
       {/* Nav */}
@@ -50,8 +50,8 @@ export function Sidebar() {
               className={cn(
                 "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors",
                 isActive
-                  ? "bg-white/10 text-white"
-                  : "text-sidebar-text hover:bg-white/5 hover:text-white"
+                  ? "bg-accent text-white"
+                  : "text-muted hover:bg-gray-100 hover:text-foreground"
               )}
             >
               <item.icon className="w-[18px] h-[18px]" />
@@ -63,7 +63,7 @@ export function Sidebar() {
 
       {/* Settings section */}
       <div className="px-3 pb-2">
-        <p className="px-3 mb-2 text-[11px] font-semibold uppercase tracking-wider text-sidebar-text/60">
+        <p className="px-3 mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted/60">
           Настройки
         </p>
         {settingsItems.map((item) => {
@@ -75,8 +75,8 @@ export function Sidebar() {
               className={cn(
                 "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors",
                 isActive
-                  ? "bg-white/10 text-white"
-                  : "text-sidebar-text hover:bg-white/5 hover:text-white"
+                  ? "bg-accent text-white"
+                  : "text-muted hover:bg-gray-100 hover:text-foreground"
               )}
             >
               <item.icon className="w-[18px] h-[18px]" />
@@ -87,14 +87,14 @@ export function Sidebar() {
       </div>
 
       {/* Footer */}
-      <div className="px-5 py-4 border-t border-white/10">
+      <div className="px-5 py-4 border-t border-gray-200">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-full bg-accent/20 flex items-center justify-center">
             <span className="text-accent text-xs font-bold">А</span>
           </div>
           <div className="min-w-0">
-            <p className="text-white text-sm font-medium truncate">Администратор</p>
-            <p className="text-sidebar-text text-xs truncate">admin@nis.edu.kz</p>
+            <p className="text-foreground text-sm font-medium truncate">Администратор</p>
+            <p className="text-muted text-xs truncate">admin@nis.edu.kz</p>
           </div>
         </div>
       </div>
