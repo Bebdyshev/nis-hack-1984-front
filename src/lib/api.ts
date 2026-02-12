@@ -19,6 +19,7 @@ function usePolling<T>(
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [mounted, setMounted] = useState(false);
 
   const fetchData = useCallback(async () => {
     try {
@@ -33,10 +34,14 @@ function usePolling<T>(
   }, [fetcher]);
 
   useEffect(() => {
+    setMounted(true);
     fetchData();
     const id = setInterval(fetchData, intervalMs);
     return () => clearInterval(id);
   }, [fetchData, intervalMs]);
+
+  // During SSR (not mounted) always return loading to avoid hydration mismatch
+  if (!mounted) return { data: null, loading: true, error: null, refetch: fetchData };
 
   return { data, loading, error, refetch: fetchData };
 }
