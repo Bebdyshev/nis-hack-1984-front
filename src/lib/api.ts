@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { TEACHER_API } from "./api-config";
-import type { StudentSummary, Violation, StudentDetail, WsEvent } from "./types";
+import type { StudentSummary, Violation, StudentDetail, AppList, WsEvent } from "./types";
 
 // ── Generic fetch helper ────────────────────────────────────────
 
@@ -77,12 +77,32 @@ export function useViolations(hostname?: string, intervalMs = 5000) {
   return usePolling(fetcher, intervalMs);
 }
 
-/** Fetch full detail for one student */
+/** Fetch full detail for one student (composed from available endpoints) */
 export function useStudentDetail(hostname: string, intervalMs = 5000) {
-  const fetcher = useCallback(
-    () => apiFetch<StudentDetail>(`/students/${hostname}`),
-    [hostname]
-  );
+  const fetcher = useCallback(async () => {
+    // The backend doesn't expose a single /students/:hostname endpoint,
+    // so we compose the detail from the list + violations + apps endpoints.
+    const [studentsData, violationsData, appsData] = await Promise.all([
+      apiFetch<{ count: number; students: StudentSummary[] }>("/students"),
+      apiFetch<{ violations: Violation[] }>(
+        `/violations?hostname=${hostname}&count=100`
+      ).catch(() => ({ violations: [] as Violation[] })),
+      apiFetch<AppList>(`/apps/${hostname}`).catch(() => null),
+    ]);
+
+    const summary = studentsData.students.find(
+      (s) => s.hostname === hostname
+    );
+    if (!summary) throw new Error(`Student ${hostname} not found`);
+
+    return {
+      summary,
+      screenshot: null,
+      apps: appsData,
+      notifications: [],
+      violations: violationsData.violations,
+    } as StudentDetail;
+  }, [hostname]);
   return usePolling(fetcher, intervalMs);
 }
 
