@@ -1,27 +1,36 @@
 "use client";
 
-import { alerts } from "@/lib/mock-data";
+import { useViolations } from "@/lib/api";
 import { formatTimeAgo } from "@/lib/utils";
-import { AlertTriangle, Filter } from "lucide-react";
+import { AlertTriangle, Filter, Loader2 } from "lucide-react";
 import { useState } from "react";
 import Link from "next/link";
 
-type AlertType = "ALL" | "PROCESS" | "DOMAIN" | "MEMORY" | "CPU";
+type RuleFilter = "ALL" | "banned_process" | "banned_domain";
 
 export default function AlertsPage() {
-  const [typeFilter, setTypeFilter] = useState<AlertType>("ALL");
+  const { data, loading } = useViolations(undefined, 5000);
+  const [ruleFilter, setRuleFilter] = useState<RuleFilter>("ALL");
+
+  const violations = data?.violations ?? [];
 
   const filtered =
-    typeFilter === "ALL"
-      ? alerts
-      : alerts.filter((a) => a.type === typeFilter);
+    ruleFilter === "ALL"
+      ? violations
+      : violations.filter((v) => v.rule === ruleFilter);
 
-  const typeLabel: Record<string, string> = {
-    PROCESS: "Процесс",
-    DOMAIN: "Домен",
-    MEMORY: "Память",
-    CPU: "CPU",
+  const ruleLabel: Record<string, string> = {
+    banned_process: "Процесс",
+    banned_domain: "Домен",
   };
+
+  if (loading) {
+    return (
+      <div className="p-6 lg:p-8 flex items-center justify-center min-h-[60vh]">
+        <Loader2 className="w-8 h-8 text-accent animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 lg:p-8 max-w-7xl">
@@ -29,7 +38,7 @@ export default function AlertsPage() {
         <div>
           <h1 className="text-2xl font-bold text-foreground">Нарушения</h1>
           <p className="text-muted text-sm mt-0.5">
-            {alerts.length} нарушений за последние 24 часа
+            {violations.length} нарушений зарегистрировано
           </p>
         </div>
       </div>
@@ -38,23 +47,23 @@ export default function AlertsPage() {
       <div className="flex items-center gap-3 mb-6">
         <Filter className="w-4 h-4 text-muted" />
         <div className="flex bg-card-bg border border-card-border rounded-lg overflow-hidden">
-          {(["ALL", "PROCESS", "DOMAIN", "MEMORY", "CPU"] as const).map((f) => (
+          {(["ALL", "banned_process", "banned_domain"] as const).map((f) => (
             <button
               key={f}
-              onClick={() => setTypeFilter(f)}
+              onClick={() => setRuleFilter(f)}
               className={`px-4 py-2.5 text-xs font-medium transition-colors ${
-                typeFilter === f
+                ruleFilter === f
                   ? "bg-accent text-white"
                   : "text-muted hover:text-foreground"
               }`}
             >
-              {f === "ALL" ? "Все" : typeLabel[f]}
+              {f === "ALL" ? "Все" : ruleLabel[f]}
             </button>
           ))}
         </div>
       </div>
 
-      {/* Alerts list */}
+      {/* Violations list */}
       <div className="bg-card-bg border border-card-border rounded-xl divide-y divide-card-border">
         {filtered.length === 0 && (
           <div className="px-5 py-16 text-center text-muted">
@@ -62,67 +71,49 @@ export default function AlertsPage() {
             <p className="text-sm">Нарушений не найдено</p>
           </div>
         )}
-        {filtered.map((alert) => (
+        {filtered.map((v, i) => (
           <div
-            key={alert.id}
+            key={`${v.hostname}-${v.timestamp}-${i}`}
             className="flex items-center gap-4 px-5 py-4 hover:bg-gray-50/50 transition-colors"
           >
             <div
               className={`w-1.5 h-12 rounded-full shrink-0 ${
-                alert.severity === "CRITICAL"
-                  ? "bg-danger"
-                  : "bg-warning"
+                v.severity === "high" ? "bg-danger" : v.severity === "medium" ? "bg-warning" : "bg-blue-400"
               }`}
             />
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2 mb-1">
                 <span
                   className={`text-xs font-bold uppercase px-2 py-0.5 rounded ${
-                    alert.type === "PROCESS"
+                    v.rule === "banned_process"
                       ? "text-danger bg-danger/10"
-                      : alert.type === "DOMAIN"
-                      ? "text-orange-600 bg-orange-50"
-                      : "text-warning bg-warning/10"
+                      : "text-orange-600 bg-orange-50"
                   }`}
                 >
-                  {typeLabel[alert.type] || alert.type}
+                  {ruleLabel[v.rule] || v.rule}
                 </span>
                 <Link
-                  href={`/students/${alert.studentId}`}
+                  href={`/students/${v.hostname}`}
                   className="text-sm font-semibold text-foreground hover:text-accent"
                 >
-                  {alert.studentName}
+                  {v.hostname}
                 </Link>
                 <span
                   className={`text-xs font-semibold ${
-                    alert.severity === "CRITICAL"
+                    v.severity === "high"
                       ? "text-danger"
-                      : "text-warning"
+                      : v.severity === "medium"
+                      ? "text-warning"
+                      : "text-blue-500"
                   }`}
                 >
-                  {alert.severity === "CRITICAL" ? "КРИТИЧНО" : "ВНИМАНИЕ"}
+                  {v.severity === "high" ? "КРИТИЧНО" : v.severity === "medium" ? "ВНИМАНИЕ" : "ИНФО"}
                 </span>
               </div>
-              <p className="text-sm text-muted">{alert.message}</p>
+              <p className="text-sm text-muted">{v.detail}</p>
             </div>
-            {alert.value && (
-              <div className="text-right shrink-0">
-                <p
-                  className={`text-lg font-bold ${
-                    alert.severity === "CRITICAL"
-                      ? "text-danger"
-                      : "text-warning"
-                  }`}
-                >
-                  {alert.value}%
-                </p>
-                <p className="text-[11px] text-muted">
-                  порог: {alert.threshold}%
-                </p>
-              </div>
-            )}
             <span className="text-xs text-muted shrink-0 min-w-[70px] text-right">
-              {formatTimeAgo(alert.timestamp)}
+              {formatTimeAgo(v.timestamp)}
             </span>
           </div>
         ))}

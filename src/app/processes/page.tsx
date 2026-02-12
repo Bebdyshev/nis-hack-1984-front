@@ -1,30 +1,60 @@
 "use client";
 
-import { students, processesMap } from "@/lib/mock-data";
-import { Cpu, AlertTriangle } from "lucide-react";
-import { useState } from "react";
+import { useStudents } from "@/lib/api";
+import { TEACHER_API } from "@/lib/api-config";
+import type { StudentDetail, Application } from "@/lib/types";
+import { Cpu, Loader2 } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 
+interface ProcessEntry extends Application {
+  hostname: string;
+}
+
 export default function ProcessesPage() {
+  const { data: studentsData, loading: sLoading } = useStudents(5000);
+  const [processes, setProcesses] = useState<ProcessEntry[]>([]);
   const [selectedStudent, setSelectedStudent] = useState<string>("all");
-  const [showBannedOnly, setShowBannedOnly] = useState(false);
 
-  // Collect all processes with student info
-  const allProcesses = Object.entries(processesMap).flatMap(([studentId, procs]) => {
-    const student = students.find((s) => s.id === studentId);
-    return procs.map((p) => ({
-      ...p,
-      studentId,
-      studentName: student?.name || studentId,
-    }));
-  });
+  const students = studentsData?.students ?? [];
+  const activeStudents = students.filter((s) => s.active);
 
-  const filtered = allProcesses
-    .filter((p) => selectedStudent === "all" || p.studentId === selectedStudent)
-    .filter((p) => !showBannedOnly || p.isBanned)
-    .sort((a, b) => b.cpuPercent - a.cpuPercent);
+  const fetchAllApps = useCallback(async () => {
+    const entries: ProcessEntry[] = [];
+    await Promise.all(
+      activeStudents.map(async (s) => {
+        try {
+          const res = await fetch(`${TEACHER_API}/students/${s.hostname}`);
+          if (!res.ok) return;
+          const detail: StudentDetail = await res.json();
+          const apps = detail.apps?.applications ?? [];
+          apps.forEach((a) => entries.push({ ...a, hostname: s.hostname }));
+        } catch {
+          // ignore
+        }
+      })
+    );
+    setProcesses(entries);
+  }, [activeStudents.map((s) => s.hostname).join(",")]);
 
-  const bannedCount = allProcesses.filter((p) => p.isBanned).length;
+  useEffect(() => {
+    if (activeStudents.length === 0) return;
+    fetchAllApps();
+    const id = setInterval(fetchAllApps, 8000);
+    return () => clearInterval(id);
+  }, [fetchAllApps]);
+
+  const filtered = processes
+    .filter((p) => selectedStudent === "all" || p.hostname === selectedStudent)
+    .sort((a, b) => b.memory_mb - a.memory_mb);
+
+  if (sLoading) {
+    return (
+      <div className="p-6 lg:p-8 flex items-center justify-center min-h-[60vh]">
+        <Loader2 className="w-8 h-8 text-accent animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 lg:p-8 max-w-7xl">
@@ -32,20 +62,12 @@ export default function ProcessesPage() {
         <div>
           <h1 className="text-2xl font-bold text-foreground">Процессы</h1>
           <p className="text-muted text-sm mt-0.5">
-            Мониторинг запущенных процессов
+            {processes.length} процессов на {activeStudents.length} компьютерах
           </p>
         </div>
-        {bannedCount > 0 && (
-          <div className="flex items-center gap-2 px-3 py-1.5 bg-danger/5 border border-danger/20 rounded-lg">
-            <AlertTriangle className="w-4 h-4 text-danger" />
-            <span className="text-sm font-medium text-danger">
-              {bannedCount} запрещённых
-            </span>
-          </div>
-        )}
       </div>
 
-      {/* Filters */}
+      {/* Filter */}
       <div className="flex items-center gap-3 mb-6">
         <select
           value={selectedStudent}
@@ -53,24 +75,12 @@ export default function ProcessesPage() {
           className="px-3 py-2.5 text-sm border border-card-border rounded-lg bg-card-bg focus:outline-none focus:ring-2 focus:ring-accent/20"
         >
           <option value="all">Все компьютеры</option>
-          {students
-            .filter((s) => s.status === "online")
-            .map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name} ({s.hostname})
-              </option>
-            ))}
+          {activeStudents.map((s) => (
+            <option key={s.hostname} value={s.hostname}>
+              {s.hostname} ({s.username || s.ip})
+            </option>
+          ))}
         </select>
-        <button
-          onClick={() => setShowBannedOnly(!showBannedOnly)}
-          className={`px-4 py-2.5 text-xs font-medium rounded-lg border transition-colors ${
-            showBannedOnly
-              ? "bg-danger text-white border-danger"
-              : "bg-card-bg text-muted border-card-border hover:text-foreground"
-          }`}
-        >
-          Только запрещённые
-        </button>
       </div>
 
       {/* Process Table */}
@@ -80,46 +90,29 @@ export default function ProcessesPage() {
             <tr className="text-xs text-muted uppercase border-b border-card-border bg-gray-50/50">
               <th className="text-left px-5 py-3 font-medium">PID</th>
               <th className="text-left px-5 py-3 font-medium">Имя</th>
-              <th className="text-left px-5 py-3 font-medium">Ученик</th>
-              <th className="text-right px-5 py-3 font-medium">CPU %</th>
-              <th className="text-right px-5 py-3 font-medium">MEM %</th>
-              <th className="text-right px-5 py-3 font-medium">RSS</th>
-              <th className="text-right px-5 py-3 font-medium">THR</th>
+              <th className="text-left px-5 py-3 font-medium">Компьютер</th>
+              <th className="text-right px-5 py-3 font-medium">Память (MB)</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-card-border">
-            {filtered.map((p) => (
+            {filtered.slice(0, 100).map((p, i) => (
               <tr
-                key={`${p.studentId}-${p.pid}`}
-                className={p.isBanned ? "bg-danger/5" : "hover:bg-gray-50/50"}
+                key={`${p.hostname}-${p.pid}-${i}`}
+                className="hover:bg-gray-50/50"
               >
                 <td className="px-5 py-3 text-muted font-mono text-xs">{p.pid}</td>
-                <td className="px-5 py-3 font-medium">
-                  <span className={p.isBanned ? "text-danger" : "text-foreground"}>
-                    {p.name}
-                  </span>
-                  {p.isBanned && (
-                    <span className="ml-2 text-[10px] font-bold uppercase text-danger bg-danger/10 px-1.5 py-0.5 rounded">
-                      запрещён
-                    </span>
-                  )}
-                </td>
+                <td className="px-5 py-3 font-medium text-foreground">{p.name}</td>
                 <td className="px-5 py-3">
                   <Link
-                    href={`/students/${p.studentId}`}
+                    href={`/students/${p.hostname}`}
                     className="text-sm text-accent hover:underline"
                   >
-                    {p.studentName}
+                    {p.hostname}
                   </Link>
                 </td>
-                <td className="px-5 py-3 text-right text-success font-medium">
-                  {p.cpuPercent}%
+                <td className="px-5 py-3 text-right text-muted">
+                  {p.memory_mb.toFixed(1)}
                 </td>
-                <td className="px-5 py-3 text-right text-success font-medium">
-                  {p.memPercent}%
-                </td>
-                <td className="px-5 py-3 text-right text-muted">{p.rss} MB</td>
-                <td className="px-5 py-3 text-right text-muted">{p.threads}</td>
               </tr>
             ))}
           </tbody>

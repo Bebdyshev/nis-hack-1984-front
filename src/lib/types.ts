@@ -1,65 +1,93 @@
-// Types for the student monitoring system
+// ── Types matching teacher backend API responses ────────────────
 
-export interface StudentPC {
-  id: string;
-  name: string;
+/** GET /api/students → { students: StudentSummary[] } */
+export interface StudentSummary {
   hostname: string;
   ip: string;
+  port: number;
+  active: boolean;
   os: string;
-  arch: string;
-  cores: number;
-  ramTotal: number; // GB
-  status: "online" | "offline";
-  lastSeen: string;
-  classroom: string;
+  username: string;
+  cpu_usage: number;
+  ram_usage: number;
+  violation_count: number;
+  last_seen: string | null;
 }
 
-export interface SystemMetrics {
-  cpu: number;
-  memory: number;
-  disk: number;
-  load: number;
+/** GET /api/violations → { violations: Violation[] } */
+export interface Violation {
+  hostname: string;
+  rule: string;      // "banned_process" | "banned_domain"
+  detail: string;
+  severity: string;  // "low" | "medium" | "high"
   timestamp: string;
 }
 
-export interface MetricsHistory {
-  studentId: string;
-  metrics: SystemMetrics[];
-}
-
-export interface ProcessInfo {
+/** Application in AppList */
+export interface Application {
+  name: string;
   pid: number;
-  name: string;
-  cpuPercent: number;
-  memPercent: number;
-  rss: number; // MB
-  threads: number;
-  isBanned?: boolean;
+  memory_mb: number;
 }
 
-export interface Alert {
-  id: string;
-  studentId: string;
-  studentName: string;
-  type: "MEMORY" | "CPU" | "PROCESS" | "DOMAIN";
-  severity: "WARNING" | "CRITICAL";
-  message: string;
-  value?: number;
-  threshold?: number;
-  timestamp: string;
-}
-
-export interface HealthCheck {
-  id: string;
-  name: string;
+/** Browser tab */
+export interface BrowserTab {
+  browser: string;
+  title: string;
   url: string;
-  status: "passing" | "failing" | "pending";
-  responseTime?: number;
-  lastChecked: string;
 }
 
-export interface Screenshot {
-  studentId: string;
-  data: string; // base64
+/** Running apps snapshot */
+export interface AppList {
+  hostname: string;
+  applications: Application[];
+  browser_tabs: BrowserTab[];
   timestamp: string;
 }
+
+/** Screenshot from student */
+export interface Screenshot {
+  hostname: string;
+  image_url: string;
+  timestamp: string;
+}
+
+/** Notification from student */
+export interface Notification {
+  hostname: string;
+  title: string;
+  message: string;
+  level: string;
+  timestamp: string;
+}
+
+/** GET /api/students/:hostname */
+export interface StudentDetail {
+  summary: StudentSummary;
+  screenshot: Screenshot | null;
+  apps: AppList | null;
+  notifications: Notification[];
+  violations: Violation[];
+}
+
+// ── WebSocket real-time event types ─────────────────────────────
+
+export interface WsViolationEvent {
+  type: "violation";
+  hostname: string;
+  rule: string;
+  detail: string;
+  severity: string;
+  timestamp: string;
+}
+
+export interface WsNotificationEvent {
+  type: "notification";
+  hostname: string;
+  title: string;
+  message: string;
+  level: string;
+  timestamp: string;
+}
+
+export type WsEvent = WsViolationEvent | WsNotificationEvent;
