@@ -4,7 +4,7 @@
 
 /** Base WebSocket URL of the teacher backend */
 export const TEACHER_WS_URL =
-  process.env.NEXT_PUBLIC_TEACHER_WS_URL || "ws://192.168.8.151:8080";
+  process.env.NEXT_PUBLIC_TEACHER_WS_URL || "ws://10.10.64.215:8080";
 
 /** WebSocket endpoint for live screen viewing (teacher dashboard) */
 export const SCREEN_VIEW_WS = `${TEACHER_WS_URL}/ws/screen/view`;

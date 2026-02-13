@@ -1,8 +1,132 @@
 "use client";
 
-import { Settings, Shield, Bell, Monitor } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import {
+  Settings,
+  Shield,
+  Globe,
+  Plus,
+  X,
+  Loader2,
+  Save,
+  Send,
+  CheckCircle,
+  AlertCircle,
+} from "lucide-react";
+import { TEACHER_API } from "@/lib/api-config";
+
+interface TeacherConfig {
+  banned_sites: string[];
+  banned_apps: string[];
+  port: number;
+  redis_url: string;
+  key_prefix: string;
+  scan_interval_secs: number;
+  heartbeat_ttl_secs: number;
+}
 
 export default function SettingsPage() {
+  const [config, setConfig] = useState<TeacherConfig | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [toast, setToast] = useState<{ ok: boolean; msg: string } | null>(null);
+
+  // Banned lists local state
+  const [bannedSites, setBannedSites] = useState<string[]>([]);
+  const [bannedApps, setBannedApps] = useState<string[]>([]);
+  const [newSite, setNewSite] = useState("");
+  const [newApp, setNewApp] = useState("");
+
+  // Broadcast URL
+  const [broadcastUrl, setBroadcastUrl] = useState("");
+  const [broadcasting, setBroadcasting] = useState(false);
+  const [broadcastResult, setBroadcastResult] = useState<{ ok: boolean; msg: string } | null>(null);
+
+  // Fetch config on mount
+  useEffect(() => {
+    fetch(`${TEACHER_API}/config`)
+      .then((r) => r.json())
+      .then((data: TeacherConfig) => {
+        setConfig(data);
+        setBannedSites(data.banned_sites ?? []);
+        setBannedApps(data.banned_apps ?? []);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  // Save banned lists
+  const handleSave = useCallback(async () => {
+    setSaving(true);
+    setToast(null);
+    try {
+      const res = await fetch(`${TEACHER_API}/config`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ banned_sites: bannedSites, banned_apps: bannedApps }),
+      });
+      if (res.ok) {
+        setToast({ ok: true, msg: "Настройки сохранены" });
+      } else {
+        setToast({ ok: false, msg: "Ошибка сохранения" });
+      }
+    } catch {
+      setToast({ ok: false, msg: "Нет связи с сервером" });
+    } finally {
+      setSaving(false);
+      setTimeout(() => setToast(null), 4000);
+    }
+  }, [bannedSites, bannedApps]);
+
+  // Broadcast open-url
+  const handleBroadcast = useCallback(async () => {
+    const url = broadcastUrl.trim();
+    if (!url) return;
+    setBroadcasting(true);
+    setBroadcastResult(null);
+    try {
+      const res = await fetch(`${TEACHER_API}/broadcast/open-url`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: url.startsWith("http") ? url : `https://${url}` }),
+      });
+      const json = await res.json();
+      setBroadcastResult({
+        ok: json.status === "ok",
+        msg: `Открыто на ${json.success ?? 0} из ${json.total ?? 0} компьютеров`,
+      });
+      if (json.status === "ok") setBroadcastUrl("");
+    } catch {
+      setBroadcastResult({ ok: false, msg: "Нет связи с сервером" });
+    } finally {
+      setBroadcasting(false);
+      setTimeout(() => setBroadcastResult(null), 5000);
+    }
+  }, [broadcastUrl]);
+
+  // Add/remove helpers
+  const addSite = () => {
+    const v = newSite.trim().toLowerCase();
+    if (v && !bannedSites.includes(v)) setBannedSites((prev) => [...prev, v]);
+    setNewSite("");
+  };
+  const removeSite = (s: string) => setBannedSites((prev) => prev.filter((x) => x !== s));
+
+  const addApp = () => {
+    const v = newApp.trim();
+    if (v && !bannedApps.includes(v)) setBannedApps((prev) => [...prev, v]);
+    setNewApp("");
+  };
+  const removeApp = (s: string) => setBannedApps((prev) => prev.filter((x) => x !== s));
+
+  if (loading) {
+    return (
+      <div className="p-6 lg:p-8 flex items-center justify-center min-h-[60vh]">
+        <Loader2 className="w-8 h-8 text-accent animate-spin" />
+      </div>
+    );
+  }
+
   return (
     <div className="p-6 lg:p-8 max-w-3xl">
       <div className="mb-6">
@@ -13,7 +137,58 @@ export default function SettingsPage() {
       </div>
 
       <div className="space-y-6">
-        {/* General */}
+        {/* ── Broadcast Open URL ─────────────────────────────── */}
+        <div className="bg-card-bg border border-card-border rounded-xl p-6">
+          <div className="flex items-center gap-3 mb-5">
+            <div className="w-9 h-9 rounded-lg bg-accent/10 flex items-center justify-center">
+              <Send className="w-4.5 h-4.5 text-accent" />
+            </div>
+            <div>
+              <h2 className="text-sm font-semibold text-foreground">Открыть ссылку на всех ПК</h2>
+              <p className="text-xs text-muted">Kahoot, презентация и т.д. — откроется у всех учащихся</p>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={broadcastUrl}
+              onChange={(e) => setBroadcastUrl(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleBroadcast()}
+              placeholder="https://kahoot.it/challenge/..."
+              className="flex-1 px-3 py-2.5 text-sm border border-card-border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-accent/20"
+            />
+            <button
+              onClick={handleBroadcast}
+              disabled={broadcasting || !broadcastUrl.trim()}
+              className="px-5 py-2.5 bg-accent text-white text-sm font-medium rounded-lg hover:bg-accent-hover transition-colors disabled:opacity-50 flex items-center gap-2"
+            >
+              {broadcasting ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Send className="w-4 h-4" />
+              )}
+              Открыть
+            </button>
+          </div>
+          {broadcastResult && (
+            <div
+              className={`mt-3 px-4 py-2.5 rounded-lg text-sm font-medium flex items-center gap-2 ${
+                broadcastResult.ok
+                  ? "bg-success/10 text-success border border-success/20"
+                  : "bg-danger/10 text-danger border border-danger/20"
+              }`}
+            >
+              {broadcastResult.ok ? (
+                <CheckCircle className="w-4 h-4" />
+              ) : (
+                <AlertCircle className="w-4 h-4" />
+              )}
+              {broadcastResult.msg}
+            </div>
+          )}
+        </div>
+
+        {/* ── General info ───────────────────────────────────── */}
         <div className="bg-card-bg border border-card-border rounded-xl p-6">
           <div className="flex items-center gap-3 mb-5">
             <div className="w-9 h-9 rounded-lg bg-accent/10 flex items-center justify-center">
@@ -21,163 +196,155 @@ export default function SettingsPage() {
             </div>
             <div>
               <h2 className="text-sm font-semibold text-foreground">Основные</h2>
-              <p className="text-xs text-muted">Общие настройки системы</p>
+              <p className="text-xs text-muted">Информация из config.toml (только чтение)</p>
             </div>
           </div>
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-foreground">Интервал сканирования</p>
-                <p className="text-xs text-muted">Как часто агент сканирует процессы</p>
-              </div>
-              <div className="flex items-center gap-2">
-                <input
-                  type="number"
-                  defaultValue={3}
-                  className="w-20 px-3 py-2 text-sm border border-card-border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-accent/20"
-                />
-                <span className="text-xs text-muted">сек.</span>
-              </div>
+          <div className="space-y-3 text-sm">
+            <div className="flex justify-between">
+              <span className="text-muted">Порт</span>
+              <span className="font-mono text-foreground">{config?.port}</span>
             </div>
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-foreground">Интервал heartbeat</p>
-                <p className="text-xs text-muted">Частота проверки связи с агентом</p>
-              </div>
-              <div className="flex items-center gap-2">
-                <input
-                  type="number"
-                  defaultValue={30}
-                  className="w-20 px-3 py-2 text-sm border border-card-border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-accent/20"
-                />
-                <span className="text-xs text-muted">сек.</span>
-              </div>
+            <div className="flex justify-between">
+              <span className="text-muted">Интервал сканирования</span>
+              <span className="font-mono text-foreground">{config?.scan_interval_secs}с</span>
             </div>
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-foreground">Redis URL</p>
-                <p className="text-xs text-muted">Адрес Redis сервера</p>
-              </div>
-              <input
-                type="text"
-                defaultValue="redis://192.168.8.151:6379"
-                className="w-64 px-3 py-2 text-sm border border-card-border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-accent/20 font-mono text-xs"
-              />
+            <div className="flex justify-between">
+              <span className="text-muted">TTL heartbeat</span>
+              <span className="font-mono text-foreground">{config?.heartbeat_ttl_secs}с</span>
             </div>
           </div>
         </div>
 
-        {/* Screenshots */}
-        <div className="bg-card-bg border border-card-border rounded-xl p-6">
-          <div className="flex items-center gap-3 mb-5">
-            <div className="w-9 h-9 rounded-lg bg-accent/10 flex items-center justify-center">
-              <Monitor className="w-4.5 h-4.5 text-accent" />
-            </div>
-            <div>
-              <h2 className="text-sm font-semibold text-foreground">Скриншоты</h2>
-              <p className="text-xs text-muted">Настройки захвата экрана</p>
-            </div>
-          </div>
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-foreground">Включить захват</p>
-                <p className="text-xs text-muted">Делать скриншоты экранов учащихся</p>
-              </div>
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input type="checkbox" className="sr-only peer" defaultChecked />
-                <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-accent"></div>
-              </label>
-            </div>
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-foreground">Интервал</p>
-                <p className="text-xs text-muted">Частота захвата экрана</p>
-              </div>
-              <div className="flex items-center gap-2">
-                <input
-                  type="number"
-                  defaultValue={10}
-                  className="w-20 px-3 py-2 text-sm border border-card-border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-accent/20"
-                />
-                <span className="text-xs text-muted">сек.</span>
-              </div>
-            </div>
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-foreground">Качество JPEG</p>
-                <p className="text-xs text-muted">1-100, выше = лучше качество</p>
-              </div>
-              <input
-                type="number"
-                defaultValue={75}
-                min={1}
-                max={100}
-                className="w-20 px-3 py-2 text-sm border border-card-border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-accent/20"
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* Banned Processes */}
+        {/* ── Banned Apps ────────────────────────────────────── */}
         <div className="bg-card-bg border border-card-border rounded-xl p-6">
           <div className="flex items-center gap-3 mb-5">
             <div className="w-9 h-9 rounded-lg bg-danger/10 flex items-center justify-center">
               <Shield className="w-4.5 h-4.5 text-danger" />
             </div>
             <div>
-              <h2 className="text-sm font-semibold text-foreground">Запрещённые процессы</h2>
+              <h2 className="text-sm font-semibold text-foreground">
+                Запрещённые процессы ({bannedApps.length})
+              </h2>
               <p className="text-xs text-muted">Процессы, запрещённые к запуску</p>
             </div>
           </div>
+          <div className="flex gap-2 mb-3">
+            <input
+              type="text"
+              value={newApp}
+              onChange={(e) => setNewApp(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && addApp()}
+              placeholder="Discord, Steam..."
+              className="flex-1 px-3 py-2 text-sm border border-card-border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-accent/20"
+            />
+            <button
+              onClick={addApp}
+              disabled={!newApp.trim()}
+              className="px-3 py-2 bg-danger/10 text-danger text-sm font-medium rounded-lg hover:bg-danger/20 transition-colors disabled:opacity-40"
+            >
+              <Plus className="w-4 h-4" />
+            </button>
+          </div>
           <div className="flex flex-wrap gap-2">
-            {[
-              "RobloxPlayerBeta", "RobloxPlayerLauncher", "RobloxStudioBeta",
-              "FortniteClient", "EpicGamesLauncher", "MinecraftLauncher",
-              "GTA5", "FiveM", "steam", "steamwebhelper",
-              "Discord", "DiscordPTB", "DiscordCanary",
-              "Telegram",
-            ].map((name) => (
+            {bannedApps.map((name) => (
               <span
                 key={name}
-                className="px-3 py-1.5 text-xs font-medium bg-danger/5 text-danger border border-danger/15 rounded-lg"
+                className="group flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-danger/5 text-danger border border-danger/15 rounded-lg"
               >
                 {name}
+                <button
+                  onClick={() => removeApp(name)}
+                  className="opacity-40 hover:opacity-100 transition-opacity"
+                >
+                  <X className="w-3 h-3" />
+                </button>
               </span>
             ))}
+            {bannedApps.length === 0 && (
+              <p className="text-xs text-muted">Нет запрещённых процессов</p>
+            )}
           </div>
         </div>
 
-        {/* Banned Domains */}
+        {/* ── Banned Sites ───────────────────────────────────── */}
         <div className="bg-card-bg border border-card-border rounded-xl p-6">
           <div className="flex items-center gap-3 mb-5">
             <div className="w-9 h-9 rounded-lg bg-warning/10 flex items-center justify-center">
-              <Bell className="w-4.5 h-4.5 text-warning" />
+              <Globe className="w-4.5 h-4.5 text-warning" />
             </div>
             <div>
-              <h2 className="text-sm font-semibold text-foreground">Запрещённые домены</h2>
+              <h2 className="text-sm font-semibold text-foreground">
+                Запрещённые домены ({bannedSites.length})
+              </h2>
               <p className="text-xs text-muted">Домены, заблокированные в DNS кэше</p>
             </div>
           </div>
+          <div className="flex gap-2 mb-3">
+            <input
+              type="text"
+              value={newSite}
+              onChange={(e) => setNewSite(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && addSite()}
+              placeholder="tiktok.com, instagram.com..."
+              className="flex-1 px-3 py-2 text-sm border border-card-border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-accent/20"
+            />
+            <button
+              onClick={addSite}
+              disabled={!newSite.trim()}
+              className="px-3 py-2 bg-warning/10 text-warning text-sm font-medium rounded-lg hover:bg-warning/20 transition-colors disabled:opacity-40"
+            >
+              <Plus className="w-4 h-4" />
+            </button>
+          </div>
           <div className="flex flex-wrap gap-2">
-            {[
-              "roblox.com", "fortnite.com", "epicgames.com",
-              "store.steampowered.com", "discord.com",
-              "web.telegram.org", "tiktok.com", "instagram.com",
-            ].map((domain) => (
+            {bannedSites.map((domain) => (
               <span
                 key={domain}
-                className="px-3 py-1.5 text-xs font-medium bg-warning/5 text-warning border border-warning/15 rounded-lg font-mono"
+                className="group flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-warning/5 text-warning border border-warning/15 rounded-lg font-mono"
               >
                 {domain}
+                <button
+                  onClick={() => removeSite(domain)}
+                  className="opacity-40 hover:opacity-100 transition-opacity"
+                >
+                  <X className="w-3 h-3" />
+                </button>
               </span>
             ))}
+            {bannedSites.length === 0 && (
+              <p className="text-xs text-muted">Нет запрещённых доменов</p>
+            )}
           </div>
         </div>
 
-        {/* Save button */}
+        {/* ── Toast + Save ───────────────────────────────────── */}
+        {toast && (
+          <div
+            className={`px-4 py-2.5 rounded-lg text-sm font-medium flex items-center gap-2 ${
+              toast.ok
+                ? "bg-success/10 text-success border border-success/20"
+                : "bg-danger/10 text-danger border border-danger/20"
+            }`}
+          >
+            {toast.ok ? (
+              <CheckCircle className="w-4 h-4" />
+            ) : (
+              <AlertCircle className="w-4 h-4" />
+            )}
+            {toast.msg}
+          </div>
+        )}
         <div className="flex justify-end">
-          <button className="px-6 py-2.5 bg-accent text-white text-sm font-medium rounded-lg hover:bg-accent-hover transition-colors">
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="px-6 py-2.5 bg-accent text-white text-sm font-medium rounded-lg hover:bg-accent-hover transition-colors disabled:opacity-50 flex items-center gap-2"
+          >
+            {saving ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Save className="w-4 h-4" />
+            )}
             Сохранить изменения
           </button>
         </div>

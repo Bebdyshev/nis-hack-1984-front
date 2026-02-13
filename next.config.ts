@@ -1,6 +1,6 @@
 import type { NextConfig } from "next";
 
-const TEACHER_API = process.env.TEACHER_API_URL || "http://192.168.8.151:8080";
+const TEACHER_API = process.env.TEACHER_API_URL || "http://10.10.64.215:8080";
 
 const nextConfig: NextConfig = {
   reactCompiler: true,
