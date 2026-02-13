@@ -24,10 +24,10 @@ export default function ProcessesPage() {
     await Promise.all(
       activeStudents.map(async (s) => {
         try {
-          const res = await fetch(`${TEACHER_API}/students/${s.hostname}`);
+          const res = await fetch(`${TEACHER_API}/apps/${s.hostname}`);
           if (!res.ok) return;
-          const detail: StudentDetail = await res.json();
-          const apps = detail.apps?.applications ?? [];
+          const data = await res.json();
+          const apps: Application[] = data.applications ?? [];
           apps.forEach((a) => entries.push({ ...a, hostname: s.hostname }));
         } catch {
           // ignore
