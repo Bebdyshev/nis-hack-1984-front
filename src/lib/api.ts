@@ -77,31 +77,21 @@ export function useViolations(hostname?: string, intervalMs = 5000) {
   return usePolling(fetcher, intervalMs);
 }
 
-/** Fetch full detail for one student (composed from available endpoints) */
+/** Fetch full detail for one student */
 export function useStudentDetail(hostname: string, intervalMs = 5000) {
   const fetcher = useCallback(async () => {
-    // The backend doesn't expose a single /students/:hostname endpoint,
-    // so we compose the detail from the list + violations + apps endpoints.
-    const [studentsData, violationsData, appsData] = await Promise.all([
-      apiFetch<{ count: number; students: StudentSummary[] }>("/students"),
-      apiFetch<{ violations: Violation[] }>(
-        `/violations?hostname=${hostname}&count=100`
-      ).catch(() => ({ violations: [] as Violation[] })),
-      apiFetch<AppList>(`/apps/${hostname}`).catch(() => null),
+    // Fetch the composed detail from the backend + live apps from the student
+    const [detail, appsData] = await Promise.all([
+      apiFetch<StudentDetail>(`/students/${encodeURIComponent(hostname)}`),
+      apiFetch<AppList>(`/apps/${encodeURIComponent(hostname)}`).catch(() => null),
     ]);
 
-    const summary = studentsData.students.find(
-      (s) => s.hostname === hostname
-    );
-    if (!summary) throw new Error(`Student ${hostname} not found`);
+    // Prefer live apps over Redis-cached apps
+    if (appsData) {
+      detail.apps = appsData;
+    }
 
-    return {
-      summary,
-      screenshot: null,
-      apps: appsData,
-      notifications: [],
-      violations: violationsData.violations,
-    } as StudentDetail;
+    return detail;
   }, [hostname]);
   return usePolling(fetcher, intervalMs);
 }
