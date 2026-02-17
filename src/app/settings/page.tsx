@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import {
   Settings,
   Shield,
+  ShieldCheck,
   Globe,
   Plus,
   X,
@@ -23,6 +24,7 @@ interface TeacherConfig {
   key_prefix: string;
   scan_interval_secs: number;
   heartbeat_ttl_secs: number;
+  sau_mode: boolean;
 }
 
 export default function SettingsPage() {
@@ -37,6 +39,10 @@ export default function SettingsPage() {
   const [newSite, setNewSite] = useState("");
   const [newApp, setNewApp] = useState("");
 
+  // SAU mode
+  const [sauMode, setSauMode] = useState(false);
+  const [sauToggling, setSauToggling] = useState(false);
+
   // Broadcast URL
   const [broadcastUrl, setBroadcastUrl] = useState("");
   const [broadcasting, setBroadcasting] = useState(false);
@@ -50,6 +56,7 @@ export default function SettingsPage() {
         setConfig(data);
         setBannedSites(data.banned_sites ?? []);
         setBannedApps(data.banned_apps ?? []);
+        setSauMode(data.sau_mode ?? false);
       })
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -63,7 +70,7 @@ export default function SettingsPage() {
       const res = await fetch(`${TEACHER_API}/config`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ banned_sites: bannedSites, banned_apps: bannedApps }),
+        body: JSON.stringify({ banned_sites: bannedSites, banned_apps: bannedApps, sau_mode: sauMode }),
       });
       if (res.ok) {
         setToast({ ok: true, msg: "Настройки сохранены" });
@@ -76,7 +83,31 @@ export default function SettingsPage() {
       setSaving(false);
       setTimeout(() => setToast(null), 4000);
     }
-  }, [bannedSites, bannedApps]);
+  }, [bannedSites, bannedApps, sauMode]);
+
+  // Toggle SAU mode immediately
+  const toggleSauMode = useCallback(async () => {
+    const next = !sauMode;
+    setSauToggling(true);
+    try {
+      const res = await fetch(`${TEACHER_API}/config`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sau_mode: next }),
+      });
+      if (res.ok) {
+        setSauMode(next);
+        setToast({ ok: true, msg: next ? "SAU включён" : "SAU выключен" });
+      } else {
+        setToast({ ok: false, msg: "Ошибка переключения SAU" });
+      }
+    } catch {
+      setToast({ ok: false, msg: "Нет связи с сервером" });
+    } finally {
+      setSauToggling(false);
+      setTimeout(() => setToast(null), 4000);
+    }
+  }, [sauMode]);
 
   // Broadcast open-url
   const handleBroadcast = useCallback(async () => {
@@ -137,6 +168,41 @@ export default function SettingsPage() {
       </div>
 
       <div className="space-y-6">
+        {/* ── SAU Mode Toggle ───────────────────────────────── */}
+        <div className="bg-card-bg border border-card-border rounded-xl p-6">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${
+                sauMode ? "bg-emerald-500/10" : "bg-gray-100"
+              }`}>
+                <ShieldCheck className={`w-4.5 h-4.5 ${sauMode ? "text-emerald-500" : "text-muted"}`} />
+              </div>
+              <div>
+                <h2 className="text-sm font-semibold text-foreground">Режим SAU (АнтиЧит)</h2>
+                <p className="text-xs text-muted">Запускает anticheat.py на всех клиентах</p>
+              </div>
+            </div>
+            <button
+              onClick={toggleSauMode}
+              disabled={sauToggling}
+              className={`relative w-12 h-7 rounded-full transition-colors duration-200 ${
+                sauMode ? "bg-emerald-500" : "bg-gray-300"
+              } ${sauToggling ? "opacity-50" : ""}`}
+            >
+              <span
+                className={`absolute top-0.5 left-0.5 w-6 h-6 rounded-full bg-white shadow transition-transform duration-200 ${
+                  sauMode ? "translate-x-5" : "translate-x-0"
+                }`}
+              />
+            </button>
+          </div>
+          {sauMode && (
+            <div className="mt-3 px-4 py-2.5 rounded-lg text-xs font-medium bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
+              SAU активен — anticheat.py запущен на клиентах
+            </div>
+          )}
+        </div>
+
         {/* ── Broadcast Open URL ─────────────────────────────── */}
         <div className="bg-card-bg border border-card-border rounded-xl p-6">
           <div className="flex items-center gap-3 mb-5">

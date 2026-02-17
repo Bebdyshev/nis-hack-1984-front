@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { TEACHER_API } from "./api-config";
+import { TEACHER_API, TEACHER_WS_URL } from "./api-config";
 import type { StudentSummary, Violation, StudentDetail, AppList, WsEvent } from "./types";
 
 // ── Generic fetch helper ────────────────────────────────────────
@@ -114,9 +114,8 @@ export function useRealtimeEvents(onEvent: (event: WsEvent) => void) {
 
   useEffect(() => {
     function connect() {
-      // Connect to the teacher's general WS endpoint
-      const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-      const wsUrl = `${proto}//${window.location.hostname}:8080/ws`;
+      // Connect to the teacher's general WS endpoint via localhost
+      const wsUrl = `${TEACHER_WS_URL}/ws`;
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
